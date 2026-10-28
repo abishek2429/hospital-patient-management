@@ -89,7 +89,6 @@ Resources:
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: HospitalLambdaRole
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -124,7 +123,6 @@ Resources:
   PatientsFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: HospitalPatientsHandler
       Runtime: nodejs20.x
       Handler: index.handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -264,7 +262,6 @@ Resources:
   AppointmentsFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: HospitalAppointmentsHandler
       Runtime: nodejs20.x
       Handler: index.handler
       Role: !GetAtt LambdaExecutionRole.Arn
