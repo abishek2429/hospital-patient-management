@@ -112,10 +112,28 @@ export async function loadDashboard() {
 
   } catch (error) {
     console.error('Failed to load dashboard data:', error);
-    if (statPatientsEl) statPatientsEl.textContent = '—';
-    if (statAppointmentsEl) statAppointmentsEl.textContent = '—';
-    if (statTodayEl) statTodayEl.textContent = '—';
-    if (statUpcomingEl) statUpcomingEl.textContent = '—';
+    if (statPatientsEl) statPatientsEl.textContent = '0';
+    if (statAppointmentsEl) statAppointmentsEl.textContent = '0';
+    if (statTodayEl) statTodayEl.textContent = '0';
+    if (statUpcomingEl) statUpcomingEl.textContent = '0';
+    if (todayScheduleBody) {
+      todayScheduleBody.innerHTML = `
+        <tr>
+          <td colspan="4" class="text-center empty-state-compact" style="color:var(--danger);">
+            Connection timeout / error. Check your API Gateway URL and Region in Cloud Settings.
+          </td>
+        </tr>
+      `;
+    }
+    if (recentPatientsBody) {
+      recentPatientsBody.innerHTML = `
+        <tr>
+          <td colspan="4" class="text-center empty-state-compact" style="color:var(--danger);">
+            Connection timeout / error. Check your API Gateway URL and Region in Cloud Settings.
+          </td>
+        </tr>
+      `;
+    }
   }
 }
 

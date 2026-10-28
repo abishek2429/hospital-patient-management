@@ -12,13 +12,13 @@ const defaultConfig = {
 
   // Amazon Cognito User Pools Configuration
   COGNITO: {
-    REGION: 'us-east-1',
-    USER_POOL_ID: 'us-east-1_XXXXXXXXX',
+    REGION: 'ap-southeast-2',
+    USER_POOL_ID: 'ap-southeast-2_XXXXXXXXX',
     APP_CLIENT_ID: 'XXXXXXXXXXXXXXXXXXXXXXXXXX'
   },
 
   // Amazon API Gateway HTTP API Endpoint URL (must not end with a trailing slash)
-  API_BASE_URL: 'https://XXXXXXXXXX.execute-api.us-east-1.amazonaws.com',
+  API_BASE_URL: 'https://XXXXXXXXXX.execute-api.ap-southeast-2.amazonaws.com',
 
   // Hospital Portal Metadata
   HOSPITAL_NAME: 'Metropolitan Hospital Center',

@@ -144,13 +144,18 @@ async function request(endpoint, options = {}) {
     ...(options.headers || {})
   };
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 7000);
+
   const config = {
     ...options,
-    headers
+    headers,
+    signal: controller.signal
   };
 
   try {
     const response = await fetch(url, config);
+    clearTimeout(timeoutId);
 
     if (response.status === 401) {
       console.warn('API returned 401 Unauthorized. Access token expired or invalid.');
