@@ -1,0 +1,14 @@
+version: 1
+frontend:
+  phases:
+    build:
+      commands:
+        # Pure vanilla JavaScript ES modules, HTML5, and CSS3 - no bundler needed
+        - echo "Preparing static assets for AWS Amplify Hosting deployment..."
+  artifacts:
+    baseDirectory: public
+    files:
+      - '**/*'
+  cache:
+    paths: []
+

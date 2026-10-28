@@ -1,0 +1,25 @@
+{
+  "name": "hospital-backend",
+  "version": "1.0.0",
+  "description": "AWS Serverless Hospital Patient Management System Backend",
+  "main": "src/patients.js",
+  "type": "module",
+  "scripts": {
+    "test": "node test/test-handlers.js"
+  },
+  "keywords": [
+    "aws",
+    "serverless",
+    "lambda",
+    "dynamodb",
+    "cognito",
+    "hospital"
+  ],
+  "author": "Cloud Computing Laboratory",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.700.0",
+    "@aws-sdk/lib-dynamodb": "^3.700.0"
+  }
+}
+

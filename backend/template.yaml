@@ -1,0 +1,283 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  AWS Serverless Hospital Patient Management System
+  Complete cloud infrastructure with DynamoDB, Cognito User Pools, API Gateway HTTP API, and Node.js 22.x Lambda handlers.
+
+Globals:
+  Function:
+    Timeout: 15
+    MemorySize: 256
+    Runtime: nodejs22.x
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        PATIENTS_TABLE: !Ref PatientsTable
+        APPOINTMENTS_TABLE: !Ref AppointmentsTable
+
+Resources:
+  # ===========================================================================
+  # 1. DynamoDB Tables (On-Demand Capacity Mode)
+  # ===========================================================================
+  PatientsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: HospitalPatients
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: patientId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: patientId
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: Environment
+          Value: LabExam
+        - Key: Application
+          Value: HospitalManagement
+
+  AppointmentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: HospitalAppointments
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: appointmentId
+          AttributeType: S
+        - AttributeName: patientId
+          AttributeType: S
+        - AttributeName: appointmentDate
+          AttributeType: S
+      KeySchema:
+        - AttributeName: appointmentId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: PatientAppointmentsIndex
+          KeySchema:
+            - AttributeName: patientId
+              KeyType: HASH
+            - AttributeName: appointmentDate
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: Environment
+          Value: LabExam
+        - Key: Application
+          Value: HospitalManagement
+
+  # ===========================================================================
+  # 2. Amazon Cognito User Pool & App Client (Staff Authentication)
+  # ===========================================================================
+  HospitalStaffUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: hospital-staff-user-pool
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+
+  HospitalStaffAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: hospital-staff-web-client
+      UserPoolId: !Ref HospitalStaffUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+      PreventUserExistenceErrors: ENABLED
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+        RefreshToken: days
+
+  # ===========================================================================
+  # 3. Amazon API Gateway HTTP API with Cognito JWT Authorizer & CORS
+  # ===========================================================================
+  HospitalHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: hospital-patient-api
+      CorsConfiguration:
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+          - X-Amz-Date
+          - X-Api-Key
+        AllowOrigins:
+          - '*'
+        MaxAge: 600
+      Auth:
+        DefaultAuthorizer: CognitoJwtAuthorizer
+        Authorizers:
+          CognitoJwtAuthorizer:
+            IdentitySource: "$request.header.Authorization"
+            JwtConfiguration:
+              issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${HospitalStaffUserPool}"
+              audience:
+                - !Ref HospitalStaffAppClient
+
+  # ===========================================================================
+  # 4. AWS Lambda Handlers (Least-Privilege Execution)
+  # ===========================================================================
+  PatientsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: patients.handler
+      Description: CRUD operations for Hospital Patients
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Scan
+                - dynamodb:Query
+              Resource:
+                - !GetAtt PatientsTable.Arn
+                - !Sub "${PatientsTable.Arn}/*"
+      Events:
+        CreatePatient:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HospitalHttpApi
+            Path: /patients
+            Method: post
+        ListPatients:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HospitalHttpApi
+            Path: /patients
+            Method: get
+        GetPatient:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HospitalHttpApi
+            Path: /patients/{id}
+            Method: get
+        UpdatePatient:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HospitalHttpApi
+            Path: /patients/{id}
+            Method: put
+        DeletePatient:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HospitalHttpApi
+            Path: /patients/{id}
+            Method: delete
+
+  AppointmentsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: appointments.handler
+      Description: Scheduling and Management for Hospital Appointments
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Scan
+                - dynamodb:Query
+              Resource:
+                - !GetAtt AppointmentsTable.Arn
+                - !Sub "${AppointmentsTable.Arn}/*"
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+              Resource:
+                - !GetAtt PatientsTable.Arn
+      Events:
+        CreateAppointment:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HospitalHttpApi
+            Path: /appointments
+            Method: post
+        ListAppointments:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HospitalHttpApi
+            Path: /appointments
+            Method: get
+        GetAppointment:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HospitalHttpApi
+            Path: /appointments/{id}
+            Method: get
+        UpdateAppointment:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HospitalHttpApi
+            Path: /appointments/{id}
+            Method: put
+        DeleteAppointment:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HospitalHttpApi
+            Path: /appointments/{id}
+            Method: delete
+
+# ===========================================================================
+# 5. Stack Outputs
+# ===========================================================================
+Outputs:
+  HttpApiEndpoint:
+    Description: HTTP API Gateway Endpoint URL for frontend configuration
+    Value: !Sub "https://${HospitalHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  CognitoUserPoolId:
+    Description: Amazon Cognito User Pool ID
+    Value: !Ref HospitalStaffUserPool
+  CognitoAppClientId:
+    Description: Amazon Cognito App Client ID (no client secret)
+    Value: !Ref HospitalStaffAppClient
+  CognitoRegion:
+    Description: AWS Deployment Region
+    Value: !Ref AWS::Region
+  PatientsTableName:
+    Description: DynamoDB Table for Patients
+    Value: !Ref PatientsTable
+  AppointmentsTableName:
+    Description: DynamoDB Table for Appointments
+    Value: !Ref AppointmentsTable
+

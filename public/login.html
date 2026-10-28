@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Staff Login | Metropolitan Hospital Center</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏥</text></svg>">
+</head>
+<body class="auth-page">
+
+  <div class="auth-card">
+    <div class="auth-header">
+      <div class="brand-icon">🏥</div>
+      <h1>Hospital Staff Portal</h1>
+      <p>AWS Serverless Healthcare System</p>
+    </div>
+
+    <!-- Error Alert Box -->
+    <div id="auth-error-alert" style="display:none; margin-bottom:1rem; padding:0.75rem; border-radius:6px; background-color:#fee2e2; border:1px solid #f87171; color:#991b1b; font-size:0.85rem;"></div>
+
+    <!-- Sign In Form -->
+    <form id="login-form">
+      <div class="form-group">
+        <label for="login-email">Hospital Staff Email <span class="required">*</span></label>
+        <input 
+          type="email" 
+          id="login-email" 
+          class="form-control" 
+          placeholder="staff@hospital.com" 
+          required 
+          autocomplete="username"
+        >
+      </div>
+
+      <div class="form-group">
+        <label for="login-password">Password <span class="required">*</span></label>
+        <input 
+          type="password" 
+          id="login-password" 
+          class="form-control" 
+          placeholder="••••••••••••" 
+          required 
+          autocomplete="current-password"
+        >
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem;">
+        <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.82rem; cursor:pointer;">
+          <input type="checkbox" id="login-remember" checked>
+          <span>Remember session</span>
+        </label>
+        <a href="#" id="btn-toggle-quick-config" style="font-size:0.8rem; color:var(--primary); text-decoration:none;">Cloud Config ⚙️</a>
+      </div>
+
+      <button type="submit" id="btn-submit-login" class="btn btn-primary" style="width:100%; justify-content:center;">
+        Sign In to Portal
+      </button>
+    </form>
+
+    <!-- Lab Examination Helper Panel -->
+    <div class="demo-account-box">
+      <strong>Lab Examination Staff Account:</strong>
+      <div>Email: <code>staff@hospital.com</code></div>
+      <div>Password: <code>HospitalStaff123!</code></div>
+      <small style="display:block; margin-top:0.35rem; color:#0369a1;">
+        Authenticated against Amazon Cognito User Pool with API Gateway JWT Authorizer.
+      </small>
+    </div>
+
+    <!-- Quick Cloud Config Panel (Collapsible) -->
+    <div id="quick-config-panel" style="display:none; margin-top:1.25rem; padding:1rem; background-color:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
+      <h4 style="font-size:0.85rem; margin-bottom:0.75rem; color:#0f172a;">Live AWS Endpoints Configuration</h4>
+      <div class="form-group">
+        <label style="font-size:0.75rem;">API Gateway URL</label>
+        <input type="text" id="cfg-api-url" class="form-control" style="font-size:0.78rem;" placeholder="https://xxx.execute-api.us-east-1.amazonaws.com">
+      </div>
+      <div class="form-group">
+        <label style="font-size:0.75rem;">Cognito User Pool ID</label>
+        <input type="text" id="cfg-pool-id" class="form-control" style="font-size:0.78rem;" placeholder="us-east-1_xxxxxxxxx">
+      </div>
+      <div class="form-group">
+        <label style="font-size:0.75rem;">Cognito App Client ID</label>
+        <input type="text" id="cfg-client-id" class="form-control" style="font-size:0.78rem;" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxx">
+      </div>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="button" id="cfg-save-btn" class="btn btn-primary btn-sm">Save & Connect</button>
+        <button type="button" id="cfg-reset-btn" class="btn btn-outline btn-sm">Reset</button>
+      </div>
+    </div>
+
+    <div class="auth-footer">
+      Amazon Cognito User Pools • API Gateway HTTP API • DynamoDB
+    </div>
+  </div>
+
+  <!-- New Password Required Modal (for Admin-Created Staff) -->
+  <div id="new-password-modal" class="modal">
+    <div class="modal-dialog modal-dialog-sm">
+      <div class="modal-header">
+        <h3 class="modal-title">New Password Required</h3>
+        <button type="button" class="modal-close">&times;</button>
+      </div>
+      <form id="new-password-form">
+        <div class="modal-body">
+          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">
+            This is your first sign-in with a temporary password. Please set your permanent password to continue.
+          </p>
+          <div class="form-group">
+            <label for="new-password-input">New Permanent Password <span class="required">*</span></label>
+            <input 
+              type="password" 
+              id="new-password-input" 
+              class="form-control" 
+              placeholder="Minimum 8 characters" 
+              required
+              minlength="8"
+            >
+          </div>
+          <div class="form-group">
+            <label for="new-password-confirm">Confirm New Password <span class="required">*</span></label>
+            <input 
+              type="password" 
+              id="new-password-confirm" 
+              class="form-control" 
+              placeholder="Re-enter password" 
+              required
+            >
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline btn-modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Set Password & Sign In</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script type="module">
+    import { CONFIG, saveConfigOverrides } from './js/config.js';
+    import { login, respondToNewPassword, redirectIfAuthenticated } from './js/auth.js';
+
+    // If already logged in, redirect to index.html
+    redirectIfAuthenticated();
+
+    const loginForm = document.getElementById('login-form');
+    const submitBtn = document.getElementById('btn-submit-login');
+    const errorAlert = document.getElementById('auth-error-alert');
+    const quickConfigToggle = document.getElementById('btn-toggle-quick-config');
+    const quickConfigPanel = document.getElementById('quick-config-panel');
+
+    // Pre-populate quick config fields
+    document.getElementById('cfg-api-url').value = CONFIG.API_BASE_URL || '';
+    document.getElementById('cfg-pool-id').value = CONFIG.COGNITO.USER_POOL_ID || '';
+    document.getElementById('cfg-client-id').value = CONFIG.COGNITO.APP_CLIENT_ID || '';
+
+    quickConfigToggle.addEventListener('click', e => {
+      e.preventDefault();
+      quickConfigPanel.style.display = quickConfigPanel.style.display === 'none' ? 'block' : 'none';
+    });
+
+    document.getElementById('cfg-save-btn').addEventListener('click', () => {
+      const apiUrl = document.getElementById('cfg-api-url').value.trim();
+      const poolId = document.getElementById('cfg-pool-id').value.trim();
+      const clientId = document.getElementById('cfg-client-id').value.trim();
+
+      saveConfigOverrides({
+        USE_MOCK: false,
+        API_BASE_URL: apiUrl,
+        COGNITO: {
+          REGION: 'us-east-1',
+          USER_POOL_ID: poolId,
+          APP_CLIENT_ID: clientId
+        }
+      });
+      alert('AWS configuration saved! You can now sign in with your Cognito staff credentials.');
+      quickConfigPanel.style.display = 'none';
+    });
+
+    document.getElementById('cfg-reset-btn').addEventListener('click', () => {
+      localStorage.removeItem('hospital_aws_config_overrides');
+      alert('Reset to default configuration.');
+      location.reload();
+    });
+
+    let pendingChallenge = null;
+
+    loginForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      errorAlert.style.display = 'none';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Authenticating with Cognito...';
+
+      const email = document.getElementById('login-email').value;
+      const password = document.getElementById('login-password').value;
+      const remember = document.getElementById('login-remember').checked;
+
+      try {
+        const result = await login(email, password, remember);
+
+        if (result.requiresNewPassword) {
+          // Open challenge modal
+          pendingChallenge = {
+            email: result.email,
+            session: result.session,
+            remember
+          };
+          document.getElementById('new-password-modal').classList.add('active');
+        } else if (result.success) {
+          window.location.href = 'index.html';
+        }
+      } catch (err) {
+        errorAlert.textContent = err.message || 'Authentication failed. Please verify credentials.';
+        errorAlert.style.display = 'block';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Sign In to Portal';
+      }
+    });
+
+    // Challenge form handler
+    const challengeForm = document.getElementById('new-password-form');
+    challengeForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      const p1 = document.getElementById('new-password-input').value;
+      const p2 = document.getElementById('new-password-confirm').value;
+
+      if (p1 !== p2) {
+        alert('Passwords do not match.');
+        return;
+      }
+
+      try {
+        await respondToNewPassword(pendingChallenge.email, p1, pendingChallenge.session, pendingChallenge.remember);
+        window.location.href = 'index.html';
+      } catch (err) {
+        alert(err.message || 'Failed to update temporary password.');
+      }
+    });
+  </script>
+</body>
+</html>
+

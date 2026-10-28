@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hospital Patient Management System | AWS Serverless</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏥</text></svg>">
+</head>
+<body>
+
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <aside class="app-sidebar">
+      <div class="sidebar-header">
+        <a href="#dashboard" class="brand-logo">
+          <div class="brand-icon">🏥</div>
+          <span>Cloud Care</span>
+        </a>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a href="#dashboard" class="nav-link active" data-view="dashboard">
+          <span class="nav-icon">📊</span>
+          <span>Dashboard</span>
+        </a>
+        <a href="#patients" class="nav-link" data-view="patients">
+          <span class="nav-icon">👥</span>
+          <span>Patients</span>
+        </a>
+        <a href="#appointments" class="nav-link" data-view="appointments">
+          <span class="nav-icon">📅</span>
+          <span>Appointments</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="staff-profile-card">
+          <div class="staff-avatar">🩺</div>
+          <div class="staff-info">
+            <span class="staff-email" id="staff-email-display">staff@hospital.com</span>
+            <span class="staff-role-badge">Authorized Staff</span>
+          </div>
+        </div>
+
+        <button type="button" class="btn-sidebar" id="btn-open-settings">
+          <span>⚙️</span> Cloud Settings
+        </button>
+        <button type="button" class="btn-sidebar btn-sidebar-danger" id="btn-logout">
+          <span>🚪</span> Sign Out
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="app-main">
+      <!-- Top Application Header -->
+      <header class="app-header">
+        <div class="header-left">
+          <button type="button" class="mobile-toggle" id="mobile-sidebar-toggle" aria-label="Toggle navigation">
+            ☰
+          </button>
+          <h1 class="header-title" id="current-page-title">Hospital Overview</h1>
+        </div>
+
+        <div class="header-right">
+          <span id="cloud-status-badge" class="status-badge status-live">● AWS Connected</span>
+          <span class="date-display" id="header-date-display">Today</span>
+        </div>
+      </header>
+
+      <!-- Dynamic Content Views -->
+      <div class="content-area">
+
+        <!-- ================================================================= -->
+        <!-- 1. DASHBOARD VIEW                                                 -->
+        <!-- ================================================================= -->
+        <section id="view-dashboard" class="view-section active">
+          <!-- 4 KPI Stat Cards (Calculated dynamically from database) -->
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-info">
+                <span class="stat-label">Total Patients</span>
+                <span class="stat-value" id="stat-total-patients">—</span>
+                <a href="#patients" class="stat-link" id="dash-link-patients">View directory &rarr;</a>
+              </div>
+              <div class="stat-icon-wrapper icon-blue">👥</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-info">
+                <span class="stat-label">Total Appointments</span>
+                <span class="stat-value" id="stat-total-appointments">—</span>
+                <a href="#appointments" class="stat-link" id="dash-link-appointments">View schedules &rarr;</a>
+              </div>
+              <div class="stat-icon-wrapper icon-purple">📅</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-info">
+                <span class="stat-label">Today's Appointments</span>
+                <span class="stat-value" id="stat-today-appointments">—</span>
+                <span class="stat-link" style="color:var(--text-muted);">Active schedule</span>
+              </div>
+              <div class="stat-icon-wrapper icon-green">⏰</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-info">
+                <span class="stat-label">Upcoming Appointments</span>
+                <span class="stat-value" id="stat-upcoming-appointments">—</span>
+                <span class="stat-link" style="color:var(--text-muted);">Scheduled visits</span>
+              </div>
+              <div class="stat-icon-wrapper icon-amber">⏳</div>
+            </div>
+          </div>
+
+          <!-- Quick Action Bar -->
+          <div class="quick-actions-bar">
+            <div class="quick-actions-text">
+              <h3>Hospital Operations & Management</h3>
+              <p>Quickly register new admissions or book consultation appointments.</p>
+            </div>
+            <div class="quick-actions-btns">
+              <button type="button" class="btn" id="dash-btn-add-patient">
+                <span>+</span> Register Patient
+              </button>
+              <button type="button" class="btn" id="dash-btn-schedule-appt">
+                <span>+</span> Schedule Appointment
+              </button>
+            </div>
+          </div>
+
+          <!-- Dashboard Two-Column Grid -->
+          <div class="dashboard-grid">
+            <!-- Today's Schedule Card -->
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">Today's Appointments</h3>
+                <span class="badge badge-scheduled">Live Schedule</span>
+              </div>
+              <div class="table-responsive">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Patient</th>
+                      <th>Doctor</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashboard-today-schedule">
+                    <tr><td colspan="4" class="text-center empty-state-compact">Loading schedule...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Recent Patients Card -->
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">Recently Registered Patients</h3>
+                <span class="badge badge-blood">Patient Records</span>
+              </div>
+              <div class="table-responsive">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Patient ID</th>
+                      <th>Full Name</th>
+                      <th>Phone</th>
+                      <th>Registered</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashboard-recent-patients">
+                    <tr><td colspan="4" class="text-center empty-state-compact">Loading patients...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================================================================= -->
+        <!-- 2. PATIENT MANAGEMENT VIEW                                        -->
+        <!-- ================================================================= -->
+        <section id="view-patients" class="view-section">
+          <div class="page-action-header">
+            <div class="page-heading">
+              <h2>Patient Management Directory</h2>
+              <p>Register, update, view, and manage hospital patient electronic records.</p>
+            </div>
+            <div class="header-actions">
+              <button type="button" class="btn btn-primary" id="btn-add-patient">
+                <span>+</span> Register Patient
+              </button>
+            </div>
+          </div>
+
+          <!-- Filter Toolbar -->
+          <div class="filter-toolbar">
+            <div class="search-box">
+              <span class="search-icon">🔍</span>
+              <input 
+                type="text" 
+                id="patients-search-input" 
+                placeholder="Search by Patient ID, Name, Phone, or Email..."
+              >
+            </div>
+            <span class="badge badge-scheduled" id="patients-count-badge">0 patients</span>
+          </div>
+
+          <!-- Loading Indicator -->
+          <div id="patients-loading" class="loading-indicator" style="display:none;">
+            <div class="spinner"></div>
+            <span>Fetching patient records from DynamoDB...</span>
+          </div>
+
+          <!-- Patients Data Table -->
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Patient ID</th>
+                  <th>Patient Name & Email</th>
+                  <th>Gender / DOB</th>
+                  <th>Contact Phone</th>
+                  <th>Blood Group</th>
+                  <th style="text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="patients-table-body">
+                <!-- Dynamically generated rows -->
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ================================================================= -->
+        <!-- 3. APPOINTMENT MANAGEMENT VIEW                                    -->
+        <!-- ================================================================= -->
+        <section id="view-appointments" class="view-section">
+          <div class="page-action-header">
+            <div class="page-heading">
+              <h2>Appointment Scheduling & Management</h2>
+              <p>Schedule consultations, manage status, and track clinical appointments.</p>
+            </div>
+            <div class="header-actions">
+              <button type="button" class="btn btn-primary" id="btn-schedule-appointment">
+                <span>+</span> Schedule Appointment
+              </button>
+            </div>
+          </div>
+
+          <!-- Filter Toolbar -->
+          <div class="filter-toolbar">
+            <div class="filter-group">
+              <span class="filter-label">Filter Date:</span>
+              <input type="date" id="appointments-filter-date" class="form-control">
+              <button type="button" class="btn btn-outline btn-sm" id="btn-filter-today">Today</button>
+            </div>
+
+            <div class="filter-group">
+              <span class="filter-label">Status:</span>
+              <select id="appointments-filter-status" class="form-select">
+                <option value="All">All Statuses</option>
+                <option value="Scheduled">Scheduled</option>
+                <option value="Completed">Completed</option>
+                <option value="Cancelled">Cancelled</option>
+              </select>
+            </div>
+
+            <button type="button" class="btn btn-outline btn-sm" id="btn-filter-clear">Clear Filters</button>
+
+            <span class="badge badge-scheduled" id="appointments-count-badge" style="margin-left:auto;">0 appointments</span>
+          </div>
+
+          <!-- Loading Indicator -->
+          <div id="appointments-loading" class="loading-indicator" style="display:none;">
+            <div class="spinner"></div>
+            <span>Fetching appointments from DynamoDB...</span>
+          </div>
+
+          <!-- Appointments Data Table -->
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Appt ID</th>
+                  <th>Patient Info</th>
+                  <th>Attending Doctor</th>
+                  <th>Date & Time</th>
+                  <th>Reason for Visit</th>
+                  <th>Status</th>
+                  <th style="text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="appointments-table-body">
+                <!-- Dynamically generated rows -->
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- ======================================================================= -->
+  <!-- MODALS                                                                  -->
+  <!-- ======================================================================= -->
+
+  <!-- 1. Patient Form Modal (Create / Edit) -->
+  <div id="patient-modal" class="modal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title" id="patient-modal-title">Register New Patient</h3>
+        <button type="button" class="modal-close">&times;</button>
+      </div>
+      <form id="patient-form">
+        <input type="hidden" id="patient-modal-id">
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="form-group form-group-full">
+              <label for="patient-fullName">Full Name <span class="required">*</span></label>
+              <input type="text" id="patient-fullName" class="form-control" placeholder="e.g. Johnathan Doe" required>
+            </div>
+
+            <div class="form-group">
+              <label for="patient-phone">Contact Phone <span class="required">*</span></label>
+              <input type="tel" id="patient-phone" class="form-control" placeholder="+1-555-0199" required>
+            </div>
+
+            <div class="form-group">
+              <label for="patient-email">Email Address</label>
+              <input type="email" id="patient-email" class="form-control" placeholder="john.doe@example.com">
+            </div>
+
+            <div class="form-group">
+              <label for="patient-dateOfBirth">Date of Birth</label>
+              <input type="date" id="patient-dateOfBirth" class="form-control">
+            </div>
+
+            <div class="form-group">
+              <label for="patient-gender">Gender</label>
+              <select id="patient-gender" class="form-select">
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Other">Other</option>
+                <option value="Prefer Not to Say">Prefer Not to Say</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="patient-bloodGroup">Blood Group</label>
+              <select id="patient-bloodGroup" class="form-select">
+                <option value="Unknown">Unknown / Not Tested</option>
+                <option value="A+">A+</option>
+                <option value="A-">A-</option>
+                <option value="B+">B+</option>
+                <option value="B-">B-</option>
+                <option value="AB+">AB+</option>
+                <option value="AB-">AB-</option>
+                <option value="O+">O+</option>
+                <option value="O-">O-</option>
+              </select>
+            </div>
+
+            <div class="form-group form-group-full">
+              <label for="patient-address">Residential Address</label>
+              <textarea id="patient-address" class="form-control" placeholder="Street, City, State, ZIP code"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline btn-modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Patient to DynamoDB</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 2. Patient Details Modal -->
+  <div id="patient-details-modal" class="modal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title">Patient Profile Details</h3>
+        <button type="button" class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="details-grid">
+          <div class="detail-item">
+            <span class="detail-label">Patient ID</span>
+            <span class="detail-val" id="details-patient-id">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Full Name</span>
+            <span class="detail-val" id="details-full-name">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Gender</span>
+            <span class="detail-val" id="details-gender">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Date of Birth</span>
+            <span class="detail-val" id="details-dob">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Contact Phone</span>
+            <span class="detail-val" id="details-phone">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Email Address</span>
+            <span class="detail-val" id="details-email">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Blood Group</span>
+            <span class="detail-val" id="details-blood">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Registered Timestamp</span>
+            <span class="detail-val" id="details-registered">—</span>
+          </div>
+          <div class="detail-item" style="grid-column: span 2;">
+            <span class="detail-label">Residential Address</span>
+            <span class="detail-val" id="details-address">—</span>
+          </div>
+          <div class="detail-item" style="grid-column: span 2;">
+            <span class="detail-label">Last Record Update</span>
+            <span class="detail-val" id="details-updated">—</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline btn-modal-cancel">Close</button>
+        <button type="button" class="btn btn-primary" id="details-schedule-btn">📅 Schedule Appointment</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Appointment Form Modal (Schedule / Edit) -->
+  <div id="appointment-modal" class="modal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title" id="appointment-modal-title">Schedule New Appointment</h3>
+        <button type="button" class="modal-close">&times;</button>
+      </div>
+      <form id="appointment-form">
+        <input type="hidden" id="appointment-modal-id">
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="form-group form-group-full">
+              <label for="appointment-patientId">Select Registered Patient <span class="required">*</span></label>
+              <select id="appointment-patientId" class="form-select" required>
+                <option value="">Loading patients...</option>
+              </select>
+              <span class="form-text">Appointments can only be scheduled for existing patients registered in DynamoDB.</span>
+            </div>
+
+            <div class="form-group form-group-full">
+              <label for="appointment-doctorName">Attending Doctor / Specialist <span class="required">*</span></label>
+              <input type="text" id="appointment-doctorName" class="form-control" placeholder="e.g. Dr. Sarah Jenkins (Cardiology)" required>
+            </div>
+
+            <div class="form-group">
+              <label for="appointment-date">Appointment Date <span class="required">*</span></label>
+              <input type="date" id="appointment-date" class="form-control" required>
+            </div>
+
+            <div class="form-group">
+              <label for="appointment-time">Appointment Time <span class="required">*</span></label>
+              <input type="time" id="appointment-time" class="form-control" required>
+            </div>
+
+            <div class="form-group form-group-full" id="appointment-status-group" style="display:none;">
+              <label for="appointment-status">Status</label>
+              <select id="appointment-status" class="form-select">
+                <option value="Scheduled">Scheduled</option>
+                <option value="Completed">Completed</option>
+                <option value="Cancelled">Cancelled</option>
+              </select>
+            </div>
+
+            <div class="form-group form-group-full">
+              <label for="appointment-reason">Reason for Visit <span class="required">*</span></label>
+              <textarea id="appointment-reason" class="form-control" placeholder="Clinical symptoms, follow-up purpose, or consultation notes" required></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline btn-modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Appointment to DynamoDB</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 4. Delete Confirmation Modal -->
+  <div id="delete-confirmation-modal" class="modal">
+    <div class="modal-dialog modal-dialog-sm">
+      <div class="modal-header">
+        <h3 class="modal-title" style="color:var(--danger);">Confirm Record Deletion</h3>
+        <button type="button" class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="delete-confirmation-message" style="font-size:0.9rem; color:var(--text-main);">
+          Are you sure you want to permanently delete this record from Amazon DynamoDB?
+        </p>
+        <p style="font-size:0.8rem; color:var(--danger); margin-top:0.5rem;">
+          ⚠️ This action cannot be undone.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline btn-modal-cancel">Cancel</button>
+        <button type="button" class="btn btn-danger" id="delete-confirm-btn">Delete Record</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. Cloud Architecture Settings Modal -->
+  <div id="settings-modal" class="modal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title">AWS Cloud Infrastructure Settings</h3>
+        <button type="button" class="modal-close">&times;</button>
+      </div>
+      <form id="settings-form">
+        <div class="modal-body">
+          <div style="margin-bottom:1.25rem; padding:0.75rem 1rem; border-radius:6px; background-color:#eff6ff; border:1px solid #bfdbfe; font-size:0.82rem; color:#1e40af;">
+            Configure your deployed AWS API Gateway HTTP API and Amazon Cognito User Pool identifiers below.
+          </div>
+
+          <div class="form-group">
+            <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+              <input type="checkbox" id="setting-mock-mode">
+              <span><strong>Enable Offline Mock Mode (For local presentation without active AWS account)</strong></span>
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label for="setting-api-url">API Gateway HTTP API Endpoint URL</label>
+            <input type="url" id="setting-api-url" class="form-control" placeholder="https://abc123xyz.execute-api.us-east-1.amazonaws.com">
+            <span class="form-text">From CloudFormation Outputs: <code>HttpApiEndpoint</code></span>
+          </div>
+
+          <div class="form-group">
+            <label for="setting-user-pool-id">Cognito User Pool ID</label>
+            <input type="text" id="setting-user-pool-id" class="form-control" placeholder="us-east-1_XXXXXXXXX">
+            <span class="form-text">From CloudFormation Outputs: <code>CognitoUserPoolId</code></span>
+          </div>
+
+          <div class="form-group">
+            <label for="setting-client-id">Cognito App Client ID</label>
+            <input type="text" id="setting-client-id" class="form-control" placeholder="XXXXXXXXXXXXXXXXXXXXXXXXXX">
+            <span class="form-text">From CloudFormation Outputs: <code>CognitoAppClientId</code></span>
+          </div>
+
+          <div class="form-group">
+            <label for="setting-region">AWS Region</label>
+            <input type="text" id="setting-region" class="form-control" placeholder="us-east-1">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline btn-modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Settings</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Main ES Module Application Script -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
+

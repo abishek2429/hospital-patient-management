@@ -1,0 +1,24 @@
+{
+  "name": "hospital-patient-management",
+  "version": "1.0.0",
+  "description": "AWS Serverless Hospital Patient Management System",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node backend/test/verify-frontend.js && cd backend && npm test",
+    "test:backend": "cd backend && npm test",
+    "test:frontend": "node backend/test/verify-frontend.js"
+  },
+  "keywords": [
+    "aws",
+    "serverless",
+    "amplify",
+    "dynamodb",
+    "cognito",
+    "lambda",
+    "api-gateway"
+  ],
+  "author": "Cloud Computing Laboratory",
+  "license": "ISC"
+}
+
