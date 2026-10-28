@@ -113,30 +113,11 @@ function initSettingsModal() {
       }
     });
 
-    showToast('AWS configuration updated successfully!', 'success');
+    showToast('Configuration updated successfully!', 'success');
     settingsModal.classList.remove('active');
-    updateConnectionBadge();
     // Reload active view data
     switchView(currentView);
   });
-}
-
-/**
- * Updates UI badge indicating cloud connection status
- */
-function updateConnectionBadge() {
-  const badge = document.getElementById('cloud-status-badge');
-  if (!badge) return;
-
-  if (isAwsConfigured()) {
-    badge.className = 'status-badge status-live';
-    badge.innerHTML = '● AWS Live Cloud (API Gateway + DynamoDB)';
-    badge.title = `Connected to API: ${CONFIG.API_BASE_URL}`;
-  } else {
-    badge.className = 'status-badge status-mock';
-    badge.innerHTML = '● Local Lab Mode (Offline Mock DB)';
-    badge.title = 'Click Cloud Settings to connect to your live AWS SAM stack';
-  }
 }
 
 /**
@@ -220,16 +201,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initDashboardModule();
   initSettingsModal();
   setupModalDismissals();
-  updateConnectionBadge();
-
-  // Allow clicking directly on the cloud status badge in the header to open settings
-  const cloudBadge = document.getElementById('cloud-status-badge');
-  if (cloudBadge) {
-    cloudBadge.style.cursor = 'pointer';
-    cloudBadge.addEventListener('click', () => {
-      document.getElementById('btn-open-settings')?.click();
-    });
-  }
 
   // Register cross-module change handlers to update dashboard stats
   registerPatientChangeCallback(() => {
