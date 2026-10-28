@@ -222,6 +222,15 @@ document.addEventListener('DOMContentLoaded', () => {
   setupModalDismissals();
   updateConnectionBadge();
 
+  // Allow clicking directly on the cloud status badge in the header to open settings
+  const cloudBadge = document.getElementById('cloud-status-badge');
+  if (cloudBadge) {
+    cloudBadge.style.cursor = 'pointer';
+    cloudBadge.addEventListener('click', () => {
+      document.getElementById('btn-open-settings')?.click();
+    });
+  }
+
   // Register cross-module change handlers to update dashboard stats
   registerPatientChangeCallback(() => {
     loadDashboard();
