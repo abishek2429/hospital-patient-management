@@ -1,0 +1,573 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AWS Serverless Hospital Patient Management System - Standalone CloudFormation Template
+  Directly uploadable via the AWS CloudFormation Console without requiring AWS SAM CLI or S3 buckets.
+
+Resources:
+  # ===========================================================================
+  # 1. DynamoDB Tables (On-Demand Capacity Mode)
+  # ===========================================================================
+  PatientsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: HospitalPatients
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: patientId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: patientId
+          KeyType: HASH
+      Tags:
+        - Key: Application
+          Value: HospitalManagement
+
+  AppointmentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: HospitalAppointments
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: appointmentId
+          AttributeType: S
+        - AttributeName: patientId
+          AttributeType: S
+        - AttributeName: appointmentDate
+          AttributeType: S
+      KeySchema:
+        - AttributeName: appointmentId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: PatientAppointmentsIndex
+          KeySchema:
+            - AttributeName: patientId
+              KeyType: HASH
+            - AttributeName: appointmentDate
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Application
+          Value: HospitalManagement
+
+  # ===========================================================================
+  # 2. Amazon Cognito User Pool & App Client (Staff Authentication)
+  # ===========================================================================
+  HospitalStaffUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: hospital-staff-user-pool
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+
+  HospitalStaffAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: hospital-staff-web-client
+      UserPoolId: !Ref HospitalStaffUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+      PreventUserExistenceErrors: ENABLED
+
+  # ===========================================================================
+  # 3. IAM Execution Role for Lambda Handlers
+  # ===========================================================================
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: HospitalLambdaRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBHospitalAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt PatientsTable.Arn
+                  - !Sub "${PatientsTable.Arn}/*"
+                  - !GetAtt AppointmentsTable.Arn
+                  - !Sub "${AppointmentsTable.Arn}/*"
+
+  # ===========================================================================
+  # 4. AWS Lambda Functions (Inline Code - Zero S3 Dependency)
+  # ===========================================================================
+  PatientsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: HospitalPatientsHandler
+      Runtime: nodejs20.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 15
+      MemorySize: 256
+      Environment:
+        Variables:
+          PATIENTS_TABLE: !Ref PatientsTable
+      Code:
+        ZipFile: |
+          const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+          const { DynamoDBDocumentClient, PutCommand, GetCommand, ScanCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
+          const crypto = require('crypto');
+
+          const client = new DynamoDBClient({});
+          const ddb = DynamoDBDocumentClient.from(client, { marshallOptions: { removeUndefinedValues: true } });
+          const TABLE = process.env.PATIENTS_TABLE || 'HospitalPatients';
+
+          function response(statusCode, body) {
+            return {
+              statusCode,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+              },
+              body: JSON.stringify(body)
+            };
+          }
+
+          exports.handler = async (event) => {
+            const method = (event.requestContext?.http?.method || event.httpMethod || '').toUpperCase();
+            if (method === 'OPTIONS') return response(200, { message: 'CORS OK' });
+
+            const pathParams = event.pathParameters || {};
+            const queryParams = event.queryStringParameters || {};
+            const rawPath = event.rawPath || event.path || '';
+
+            let patientId = pathParams.id || pathParams.patientId;
+            if (!patientId && pathParams.proxy) patientId = pathParams.proxy;
+            if (!patientId) {
+              const m = rawPath.match(/\/patients\/([^\/?#]+)/);
+              if (m) patientId = decodeURIComponent(m[1]);
+            }
+
+            try {
+              if (method === 'POST') {
+                const body = typeof event.body === 'string' ? JSON.parse(event.body || '{}') : (event.body || {});
+                if (!body.fullName || !body.phone) {
+                  return response(400, { success: false, error: 'Full name and phone are required.' });
+                }
+                const newId = body.patientId || ('PAT-' + crypto.randomBytes(4).toString('hex').toUpperCase());
+                const now = new Date().toISOString();
+                const item = {
+                  patientId: newId,
+                  fullName: body.fullName.trim(),
+                  dateOfBirth: body.dateOfBirth || '',
+                  gender: body.gender || 'Not Specified',
+                  phone: body.phone.trim(),
+                  email: body.email ? body.email.trim().toLowerCase() : '',
+                  address: body.address ? body.address.trim() : '',
+                  bloodGroup: body.bloodGroup || 'Unknown',
+                  createdAt: now,
+                  updatedAt: now
+                };
+                await ddb.send(new PutCommand({
+                  TableName: TABLE,
+                  Item: item,
+                  ConditionExpression: 'attribute_not_exists(patientId)'
+                }));
+                return response(201, { success: true, message: 'Patient registered', data: item });
+              }
+
+              if (method === 'GET') {
+                if (patientId) {
+                  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { patientId } }));
+                  if (!res.Item) return response(404, { success: false, error: `Patient '${patientId}' not found.` });
+                  return response(200, { success: true, data: res.Item });
+                }
+                const search = (queryParams.search || '').trim().toLowerCase();
+                const res = await ddb.send(new ScanCommand({ TableName: TABLE }));
+                let items = res.Items || [];
+                if (search) {
+                  items = items.filter(p =>
+                    (p.fullName && p.fullName.toLowerCase().includes(search)) ||
+                    (p.patientId && p.patientId.toLowerCase().includes(search)) ||
+                    (p.phone && p.phone.toLowerCase().includes(search))
+                  );
+                }
+                items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                return response(200, { success: true, count: items.length, data: items });
+              }
+
+              if (method === 'PUT') {
+                if (!patientId) return response(400, { success: false, error: 'Patient ID is required.' });
+                const body = typeof event.body === 'string' ? JSON.parse(event.body || '{}') : (event.body || {});
+                const existing = await ddb.send(new GetCommand({ TableName: TABLE, Key: { patientId } }));
+                if (!existing.Item) return response(404, { success: false, error: 'Patient not found.' });
+
+                const updated = {
+                  ...existing.Item,
+                  ...(body.fullName && { fullName: body.fullName.trim() }),
+                  ...(body.dateOfBirth !== undefined && { dateOfBirth: body.dateOfBirth }),
+                  ...(body.gender !== undefined && { gender: body.gender }),
+                  ...(body.phone && { phone: body.phone.trim() }),
+                  ...(body.email !== undefined && { email: body.email.trim().toLowerCase() }),
+                  ...(body.address !== undefined && { address: body.address.trim() }),
+                  ...(body.bloodGroup !== undefined && { bloodGroup: body.bloodGroup }),
+                  updatedAt: new Date().toISOString()
+                };
+                await ddb.send(new PutCommand({
+                  TableName: TABLE,
+                  Item: updated,
+                  ConditionExpression: 'attribute_exists(patientId)'
+                }));
+                return response(200, { success: true, message: 'Patient updated', data: updated });
+              }
+
+              if (method === 'DELETE') {
+                if (!patientId) return response(400, { success: false, error: 'Patient ID is required.' });
+                await ddb.send(new DeleteCommand({
+                  TableName: TABLE,
+                  Key: { patientId },
+                  ConditionExpression: 'attribute_exists(patientId)'
+                }));
+                return response(200, { success: true, message: `Patient '${patientId}' deleted successfully.` });
+              }
+
+              return response(405, { success: false, error: 'Method not allowed.' });
+            } catch (err) {
+              console.error('Patient error:', err);
+              return response(500, { success: false, error: err.message });
+            }
+          };
+
+  AppointmentsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: HospitalAppointmentsHandler
+      Runtime: nodejs20.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 15
+      MemorySize: 256
+      Environment:
+        Variables:
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          PATIENTS_TABLE: !Ref PatientsTable
+      Code:
+        ZipFile: |
+          const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+          const { DynamoDBDocumentClient, PutCommand, GetCommand, ScanCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
+          const crypto = require('crypto');
+
+          const client = new DynamoDBClient({});
+          const ddb = DynamoDBDocumentClient.from(client, { marshallOptions: { removeUndefinedValues: true } });
+          const APPT_TABLE = process.env.APPOINTMENTS_TABLE || 'HospitalAppointments';
+          const PAT_TABLE = process.env.PATIENTS_TABLE || 'HospitalPatients';
+
+          function response(statusCode, body) {
+            return {
+              statusCode,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+              },
+              body: JSON.stringify(body)
+            };
+          }
+
+          exports.handler = async (event) => {
+            const method = (event.requestContext?.http?.method || event.httpMethod || '').toUpperCase();
+            if (method === 'OPTIONS') return response(200, { message: 'CORS OK' });
+
+            const pathParams = event.pathParameters || {};
+            const queryParams = event.queryStringParameters || {};
+            const rawPath = event.rawPath || event.path || '';
+
+            let appointmentId = pathParams.id || pathParams.appointmentId;
+            if (!appointmentId && pathParams.proxy) appointmentId = pathParams.proxy;
+            if (!appointmentId) {
+              const m = rawPath.match(/\/appointments\/([^\/?#]+)/);
+              if (m) appointmentId = decodeURIComponent(m[1]);
+            }
+
+            try {
+              if (method === 'POST') {
+                const body = typeof event.body === 'string' ? JSON.parse(event.body || '{}') : (event.body || {});
+                if (!body.patientId || !body.doctorName || !body.appointmentDate || !body.appointmentTime || !body.reason) {
+                  return response(400, { success: false, error: 'Required fields missing: patientId, doctorName, appointmentDate, appointmentTime, reason.' });
+                }
+
+                // Reject past appointments
+                const today = new Date().toISOString().split('T')[0];
+                if (body.appointmentDate < today) {
+                  return response(400, { success: false, error: 'Appointment date and time cannot be in the past.' });
+                }
+
+                // Verify patient exists
+                const pRes = await ddb.send(new GetCommand({ TableName: PAT_TABLE, Key: { patientId: body.patientId.trim() } }));
+                if (!pRes.Item) {
+                  return response(400, { success: false, error: `Patient ID '${body.patientId}' does not exist.` });
+                }
+
+                const newId = body.appointmentId || ('APT-' + crypto.randomBytes(4).toString('hex').toUpperCase());
+                const now = new Date().toISOString();
+                const item = {
+                  appointmentId: newId,
+                  patientId: body.patientId.trim(),
+                  patientName: body.patientName || pRes.Item.fullName,
+                  doctorName: body.doctorName.trim(),
+                  appointmentDate: body.appointmentDate.trim(),
+                  appointmentTime: body.appointmentTime.trim(),
+                  reason: body.reason.trim(),
+                  status: body.status || 'Scheduled',
+                  createdAt: now,
+                  updatedAt: now
+                };
+
+                await ddb.send(new PutCommand({
+                  TableName: APPT_TABLE,
+                  Item: item,
+                  ConditionExpression: 'attribute_not_exists(appointmentId)'
+                }));
+                return response(201, { success: true, message: 'Appointment scheduled', data: item });
+              }
+
+              if (method === 'GET') {
+                if (appointmentId) {
+                  const res = await ddb.send(new GetCommand({ TableName: APPT_TABLE, Key: { appointmentId } }));
+                  if (!res.Item) return response(404, { success: false, error: 'Appointment not found.' });
+                  return response(200, { success: true, data: res.Item });
+                }
+
+                const filterDate = queryParams.date ? queryParams.date.trim() : null;
+                const filterStatus = queryParams.status ? queryParams.status.trim() : null;
+                const filterPatientId = queryParams.patientId ? queryParams.patientId.trim() : null;
+
+                const res = await ddb.send(new ScanCommand({ TableName: APPT_TABLE }));
+                let items = res.Items || [];
+
+                if (filterDate) items = items.filter(a => a.appointmentDate === filterDate);
+                if (filterStatus && filterStatus !== 'All') items = items.filter(a => a.status.toLowerCase() === filterStatus.toLowerCase());
+                if (filterPatientId) items = items.filter(a => a.patientId === filterPatientId);
+
+                items.sort((a, b) => {
+                  const dtA = `${a.appointmentDate}T${a.appointmentTime || '00:00'}`;
+                  const dtB = `${b.appointmentDate}T${b.appointmentTime || '00:00'}`;
+                  return dtA.localeCompare(dtB);
+                });
+                return response(200, { success: true, count: items.length, data: items });
+              }
+
+              if (method === 'PUT') {
+                if (!appointmentId) return response(400, { success: false, error: 'Appointment ID is required.' });
+                const body = typeof event.body === 'string' ? JSON.parse(event.body || '{}') : (event.body || {});
+                const existing = await ddb.send(new GetCommand({ TableName: APPT_TABLE, Key: { appointmentId } }));
+                if (!existing.Item) return response(404, { success: false, error: 'Appointment not found.' });
+
+                let patientName = existing.Item.patientName;
+                if (body.patientId && body.patientId !== existing.Item.patientId) {
+                  const pRes = await ddb.send(new GetCommand({ TableName: PAT_TABLE, Key: { patientId: body.patientId.trim() } }));
+                  if (!pRes.Item) return response(400, { success: false, error: `Patient ID '${body.patientId}' does not exist.` });
+                  patientName = pRes.Item.fullName;
+                }
+
+                const updated = {
+                  ...existing.Item,
+                  ...(body.patientId && { patientId: body.patientId.trim() }),
+                  ...(patientName && { patientName }),
+                  ...(body.doctorName && { doctorName: body.doctorName.trim() }),
+                  ...(body.appointmentDate && { appointmentDate: body.appointmentDate.trim() }),
+                  ...(body.appointmentTime && { appointmentTime: body.appointmentTime.trim() }),
+                  ...(body.reason && { reason: body.reason.trim() }),
+                  ...(body.status && { status: body.status }),
+                  updatedAt: new Date().toISOString()
+                };
+
+                await ddb.send(new PutCommand({
+                  TableName: APPT_TABLE,
+                  Item: updated,
+                  ConditionExpression: 'attribute_exists(appointmentId)'
+                }));
+                return response(200, { success: true, message: 'Appointment updated', data: updated });
+              }
+
+              if (method === 'DELETE') {
+                if (!appointmentId) return response(400, { success: false, error: 'Appointment ID is required.' });
+                await ddb.send(new DeleteCommand({
+                  TableName: APPT_TABLE,
+                  Key: { appointmentId },
+                  ConditionExpression: 'attribute_exists(appointmentId)'
+                }));
+                return response(200, { success: true, message: `Appointment '${appointmentId}' deleted.` });
+              }
+
+              return response(405, { success: false, error: 'Method not allowed.' });
+            } catch (err) {
+              console.error('Appointment error:', err);
+              return response(500, { success: false, error: err.message });
+            }
+          };
+
+  # ===========================================================================
+  # 5. Amazon API Gateway HTTP API v2 with CORS & Cognito JWT Authorizer
+  # ===========================================================================
+  HospitalHttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: hospital-patient-api
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+          - X-Amz-Date
+          - X-Api-Key
+        AllowOrigins:
+          - '*'
+        MaxAge: 600
+
+  CognitoAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref HospitalHttpApi
+      AuthorizerType: JWT
+      IdentitySource:
+        - "$request.header.Authorization"
+      Name: CognitoAuthorizer
+      JwtConfiguration:
+        Audience:
+          - !Ref HospitalStaffAppClient
+        Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${HospitalStaffUserPool}"
+
+  # Integrations
+  PatientsIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HospitalHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt PatientsFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  AppointmentsIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HospitalHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt AppointmentsFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  # Routes for Patients
+  RoutePatientsRoot:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HospitalHttpApi
+      RouteKey: 'ANY /patients'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref CognitoAuthorizer
+      Target: !Sub "integrations/${PatientsIntegration}"
+
+  RoutePatientsProxy:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HospitalHttpApi
+      RouteKey: 'ANY /patients/{proxy+}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref CognitoAuthorizer
+      Target: !Sub "integrations/${PatientsIntegration}"
+
+  # Routes for Appointments
+  RouteAppointmentsRoot:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HospitalHttpApi
+      RouteKey: 'ANY /appointments'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref CognitoAuthorizer
+      Target: !Sub "integrations/${AppointmentsIntegration}"
+
+  RouteAppointmentsProxy:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HospitalHttpApi
+      RouteKey: 'ANY /appointments/{proxy+}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref CognitoAuthorizer
+      Target: !Sub "integrations/${AppointmentsIntegration}"
+
+  # Default Stage
+  HttpApiDefaultStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HospitalHttpApi
+      StageName: '$default'
+      AutoDeploy: true
+
+  # Lambda Permissions to allow API Gateway invocations
+  PatientsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt PatientsFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HospitalHttpApi}/*"
+
+  AppointmentsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt AppointmentsFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HospitalHttpApi}/*"
+
+# ===========================================================================
+# 6. Stack Outputs (These populate the Outputs tab in AWS Console!)
+# ===========================================================================
+Outputs:
+  HttpApiEndpoint:
+    Description: HTTP API Gateway Endpoint URL for frontend configuration
+    Value: !Sub "https://${HospitalHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  CognitoUserPoolId:
+    Description: Amazon Cognito User Pool ID
+    Value: !Ref HospitalStaffUserPool
+  CognitoAppClientId:
+    Description: Amazon Cognito App Client ID (no client secret)
+    Value: !Ref HospitalStaffAppClient
+  CognitoRegion:
+    Description: AWS Deployment Region
+    Value: !Ref "AWS::Region"
+  PatientsTableName:
+    Description: DynamoDB Table for Patients
+    Value: !Ref PatientsTable
+  AppointmentsTableName:
+    Description: DynamoDB Table for Appointments
+    Value: !Ref AppointmentsTable
+
